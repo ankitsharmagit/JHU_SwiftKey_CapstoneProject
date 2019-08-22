@@ -1,0 +1,270 @@
+---
+title: "Assignment: Milestone Report"
+output: html_document
+---
+
+## Introduction
+
+The goal of this project is just to display that you've gotten used to working with the data and that you are on track to create your prediction algorithm. Please submit a report on R Pubs (http://rpubs.com/) that explains your exploratory analysis and your goals for the eventual app and algorithm. This document should be concise and explain only the major features of the data you have identified and briefly summarize your plans for creating the prediction algorithm and Shiny app in a way that would be understandable to a non-data scientist manager. You should make use of tables and plots to illustrate important summaries of the data set. The motivation for this project is to: 1. Demonstrate that you've downloaded the data and have successfully loaded it in.2. Create a basic report of summary statistics about the data sets.3. Report any interesting findings that you amassed so far.4. Get feedback on your plans for creating a prediction algorithm and Shiny app.
+```{r setup, include=FALSE}
+
+conn <- file("final/en_US/en_US.blogs.txt", "r")
+blogs_lines=readLines(conn)
+close(conn)
+conn <- file("final/en_US/en_US.news.txt", "r")
+news_lines=readLines(conn)
+close(conn)
+conn <- file("final/en_US/en_US.twitter.txt", "r")
+twitter_lines=readLines(conn)
+close(conn)
+
+head(blogs_lines,5)
+head(news_lines,5)
+head(twitter_lines,5)
+
+```
+## Basic report of summary statistics
+
+```{r}
+file_summary<-function(filepath,lines)
+{
+file_size=file.info(filepath)[1]/1024^2
+line_count= length(lines)
+words_count=sum(sapply(strsplit(lines,split = "\\s+"), length))
+
+return(c(filepath,file_size,line_count,words_count))
+}
+
+blog_summary=file_summary("final/en_US/en_US.blogs.txt",blogs_lines)
+news_summary=file_summary("final/en_US/en_US.news.txt",news_lines)
+twitter_summary=file_summary("final/en_US/en_US.twitter.txt",twitter_lines)
+
+
+sumarrydata= matrix(data =c(blog_summary,news_summary,twitter_summary),nrow = 3,ncol = 4,byrow = TRUE )
+colnames(sumarrydata)=c("File","File size(MB)","Lines_Count","Words_count")
+sumarrydata
+```
+
+
+## Exploratory Data Analysis
+
+Creating Corpus and Cleaning the text file
+```{r}
+#Loading "tm" package for NLP
+#install.packages("tm")
+library(tm)
+#install.packages("SnowballC")
+library(SnowballC)
+
+  clean_text<- function(sampletext){
+    
+    vs<-VectorSource(sampletext)
+    corpus=VCorpus(vs,readerControl = list(readPlain,language="en",load=TRUE))
+    
+    corpus=tm_map(corpus,content_transformer(tolower))
+    corpus= tm_map(corpus,removeNumbers)
+    corpus= tm_map(corpus,removePunctuation)
+    corpus= tm_map(corpus,removeWords,stopwords("english"))
+    corpus= tm_map(corpus,stemDocument)
+    corpus= tm_map(corpus,stripWhitespace)
+    return(corpus)
+  }
+
+
+
+```
+
+Common data cleaning tasks associated with text mining are:
+
+1.Converting the entire document to lower case
+2.Removing punctuation marks (periods, commas, hyphens etc)
+3.Removing stopwords (extremely common words such as “and”, “or”, “not”, “in”, “is” etc)
+4.Removing numbers
+5.Filtering out unwanted terms
+6.Removing extra whitespace
+
+
+## High Frequency words
+Finding out the most freqest used Words.
+```{r}
+
+high_freq_words<-function(corpus){
+dtm=DocumentTermMatrix(corpus)
+dtmmatrix=as.matrix(dtm)
+freq_words=colSums(dtmmatrix)
+freq_word=as.data.frame(sort(freq_words,decreasing = TRUE))
+freq_word$words=row.names(freq_word)
+colnames(freq_word)<-c("Frequency","Words")
+
+return(freq_word)
+}
+
+
+
+```
+
+## Blogs- Bar Chart of High frequency words
+Below Bar chart represents  the most frequent words used in Blogs.
+
+```{r}
+#Creating Sample from Blogs.
+sampletext<-sample(blogs_lines,size=length(blogs_lines)*.005,replace=FALSE)
+clean_blogs= clean_text(sampletext)
+hf_words=high_freq_words(clean_blogs)
+hfw_blogs=head(hf_words,15)
+
+library(ggplot2)
+
+p<-ggplot()+geom_bar(data = hfw_blogs,aes(x=reorder(Words,-Frequency),y = Frequency),stat = "identity") 
+
+  p+xlab("High Frequency words :US Blogs")+ylab("Frequency")
+```
+
+## News- Bar Chart of High frequency words
+
+Below Bar chart represents  the most frequent words used in News
+```{r}
+sampletext<-sample(news_lines,size=length(news_lines)*.005,replace=FALSE)
+clean_news= clean_text(sampletext)
+hf_words=high_freq_words(clean_news)
+hfw_news=head(hf_words,15)
+
+
+p<-ggplot()+geom_bar(data = hfw_news,aes(x=reorder(Words,-Frequency),y = Frequency),stat = "identity")
+
+  p+xlab("High Frequency words :US News")+ylab("Frequency")
+```
+
+## Twitter- Bar Chart of High frequency words
+
+Below Bar chart represents  the most frequent words used in Twitter.
+
+```{r}
+sampletext<-sample(twitter_lines,size=length(twitter_lines)*.001,replace=FALSE)
+clean_twitter= clean_text(sampletext)
+hf_words=high_freq_words(clean_twitter)
+hfw_twitter=head(hf_words,15)
+
+
+p<-ggplot()+geom_bar(data = hfw_twitter,aes(x=reorder(Words,-Frequency),y = Frequency),stat = "identity")
+
+  p+xlab("High Frequency words :US twitter")+ylab("Frequency")
+  
+  
+```
+
+
+```{r}
+#Installing "ngram" package 
+#install.packages("rJava")
+library(rJava)
+library(RWeka)
+
+
+unigram<-function(mycorpus){
+  
+tok1 <- function(x) NGramTokenizer(x, Weka_control(min=1, max=1))
+tdm1 <- TermDocumentMatrix(mycorpus,control = list(tokenize = tok1))
+termFreq1 <- rowSums(as.matrix(tdm1))
+
+head(sort(termFreq1,decreasing = TRUE),20)
+
+}
+
+bigram<-function(mycorpus){
+  
+tok2 <- function(y) NGramTokenizer(y, Weka_control(min=2, max=2))
+tdm2 <- TermDocumentMatrix(mycorpus,control = list(tokenize = tok2))
+termFreq2 <- rowSums(as.matrix(tdm2))
+head(sort(termFreq2,decreasing = TRUE),20)
+}
+
+trigram<-function(mycorpus){
+tok3 <- function(z) NGramTokenizer(z, Weka_control(min=3, max=3))
+tdm3 <- TermDocumentMatrix(mycorpus,control = list(tokenize = tok3))
+termFreq3 <- rowSums(as.matrix(tdm3))
+head(sort(termFreq3,decreasing = TRUE),20)
+}
+
+fourgram<-function(mycorpus){
+tok4 <- function(z) NGramTokenizer(z, Weka_control(min=4, max=4))
+tdm4 <- TermDocumentMatrix(mycorpus,control = list(tokenize = tok4))
+termFreq4 <- rowSums(as.matrix(tdm4))
+head(sort(termFreq4,decreasing = TRUE),20)
+}
+
+fivegram<-function(mycorpus){
+tok5 <- function(z) NGramTokenizer(z, Weka_control(min=5, max=5))
+tdm5 <- TermDocumentMatrix(mycorpus,control = list(tokenize = tok5))
+termFreq5 <- rowSums(as.matrix(tdm5))
+head(sort(termFreq5,decreasing = TRUE),20)
+}
+
+
+
+
+```
+
+```{r}
+sampletext<-sample(blogs_lines,size=length(blogs_lines)*.001,replace=FALSE)
+corpus_blogs= clean_text(sampletext)
+# 20 top US blogs Unigram words
+unigram(corpus_blogs)
+# 20 top US blogs Bigram words
+bigram(corpus_blogs)
+# 20 top US blogs Trigram words
+trigram(corpus_blogs)
+# 20 top US blogs Fourgram words
+fourgram(corpus_blogs)
+# 20 top US blogs Fivegram words
+fivergram(corpus_blogs)
+```
+
+
+```{r}
+sampletext<-sample(news_lines,size=length(news_lines)*.001,replace=FALSE)
+corpus_news= clean_text(sampletext)
+# 20 top US News Unigram words
+unigram(corpus_news)
+# 20 top US News Bigram words
+bigram(corpus_news)
+# 20 top US News Trigram words
+trigram(corpus_news)
+# 20 top US News Fourgram words
+fourgram(corpus_news)
+# 20 top US News Fivegram words
+fivergram(corpus_news)
+```
+
+```{r}
+sampletext<-sample(twitter_lines,size=length(twitter_lines)*.001,replace=FALSE)
+corpus_twitter= clean_text(sampletext)
+# 20 top US Twitter Unigram words
+unigram(corpus_twitter)
+# 20 top US Twitter Bigram words
+bigram(corpus_twitter)
+# 20 top US Twitter Trigram words
+trigram(corpus_twitter)
+# 20 top US Twitter Fourgram words
+fourgram(corpus_twitter)
+# 20 top US Twitter Fivegram words
+fivergram(corpus_twitter)
+
+```
+
+
+```{r}
+install.packages(stringr)
+library(stringr)
+sample=" i am the fan of "
+input=trimws(sample)
+wc=length(unlist(strsplit( input,split = " ")))
+if (wc>=4){
+  input=word(string = input,start = -3,end = -1)
+  
+  
+}
+
+
+```
+
